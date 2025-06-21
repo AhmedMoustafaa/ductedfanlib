@@ -1,4 +1,4 @@
-# DuctedFanLib: A Python Framework for Ducted Fan Analysis
+# DuctedFanLib: A Python Framework for Ducted Fan Analysis (Under Development)
 
 **DuctedFanLib** is an open-source Python library for the parametric design, aerodynamic analysis, and performance optimization of ducted fan propulsion systems. It is built to provide researchers, students, and engineers with a flexible and extensible toolkit for exploring the complex aerodynamics of ducted and open rotors.
 
