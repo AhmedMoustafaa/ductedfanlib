@@ -1,0 +1,8 @@
+numpy~=2.2.6
+scipy~=1.15.3
+ductedfanlib~=0.0.0
+NeuralFoil~=0.3.2
+AeroSandbox~=4.2.8
+matplotlib==3.9.3
+pandas~=2.2.3
+pytest~=8.3.5
