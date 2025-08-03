@@ -6,18 +6,14 @@ module into discretized geometric representations suitable for various analysis 
 """
 from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
-
-# Import core objects for type hinting
 from ductedfanlib.core.rotor import Rotor
 from ductedfanlib.core.duct import Duct
 
 
-# from ductedfanlib.core.blade import Blade # If needed for direct blade meshing later
-
 def get_rotor_bemt_stations(
         rotor: Rotor,
         num_stations: Optional[int] = None,
-        spacing_type: str = "cosine",  # Cosine is often preferred for BEMT
+        spacing_type: str = "cosine",
         eta_values_override: Optional[np.ndarray] = None
 ) -> List[Dict[str, Any]]:
     """
@@ -43,9 +39,8 @@ def get_rotor_bemt_stations(
     if not isinstance(rotor, Rotor):
         raise TypeError("Input 'rotor' must be an instance of the Rotor class.")
 
-    # Provide a sensible default for num_stations if neither it nor eta_values_override is given
     if num_stations is None and eta_values_override is None:
-        num_stations = 21  # A common default for BEMT
+        num_stations = 21
 
     return rotor.get_radial_stations_properties(
         num_stations=num_stations,
@@ -56,8 +51,7 @@ def get_rotor_bemt_stations(
 
 def generate_duct_axisymmetric_panels(
         duct: Duct,
-        num_profile_points: int = 51,  # Number of points to discretize the duct's generative curve
-        # Additional panel generation options could be added later, e.g., panel density control
+        num_profile_points: int = 51,
 ) -> np.ndarray:
     """
     Generates a series of linear panels representing the axisymmetric duct profile.
@@ -86,19 +80,18 @@ def generate_duct_axisymmetric_panels(
     if num_profile_points < 2:
         raise ValueError("num_profile_points must be at least 2 to form any panels.")
 
-    # Get the profile points (z, r) sorted by z
-    # Duct.get_profile_points() already returns them sorted by axial coordinate
-    profile_points = duct.get_profile_points(num_points=num_profile_points)  # Shape: (num_points, 2)
 
-    if profile_points.shape[0] < 2:  # Should be caught by num_profile_points check already
+    profile_points = duct.get_profile_points(num_points=num_profile_points)
+
+    if profile_points.shape[0] < 2:
         raise ValueError("Not enough points from duct profile to generate panels.")
 
     num_panels = profile_points.shape[0] - 1
-    panels = np.zeros((num_panels, 2, 2))  # (num_panels, start/end_point, z/r_coord)
+    panels = np.zeros((num_panels, 2, 2))
 
     for i in range(num_panels):
-        panels[i, 0, :] = profile_points[i, :]  # Start point of panel i
-        panels[i, 1, :] = profile_points[i + 1, :]  # End point of panel i
+        panels[i, 0, :] = profile_points[i, :]
+        panels[i, 1, :] = profile_points[i + 1, :]
 
     return panels
 

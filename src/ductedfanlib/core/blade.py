@@ -8,7 +8,6 @@ import numpy as np
 from ductedfanlib.geometry.airfoils import Airfoil
 from ductedfanlib.geometry.profiles import ConstantDistribution, LinearDistribution # Add more as needed
 
-# Define a TypeVar for profile types to make type hints cleaner
 ProfileCallable = Callable[[Union[float, np.ndarray]], Union[float, np.ndarray]]
 ProfileDefinition = Union[ConstantDistribution, LinearDistribution, ProfileCallable, Any]
 
@@ -49,7 +48,6 @@ class Blade:
         """
         self.airfoil_definition: AirfoilInputDefinition
         if isinstance(airfoil_definition, dict):
-            # Ensure dictionary keys (eta values) are floats and sorted for reliable lookup
             try:
                 self.airfoil_definition = PyOrderedDict(
                     sorted({float(k): v for k, v in airfoil_definition.items()}.items())

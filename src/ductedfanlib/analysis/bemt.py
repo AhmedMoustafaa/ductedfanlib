@@ -6,8 +6,6 @@ import numpy as np
 from scipy.optimize import brentq # For cd_inverse
 from scipy.integrate import trapezoid as trapz
 from scipy.special import ellipk, ellipj # For F_gap
-
-# Assuming Airfoil class is in ductedfanlib.geometry.airfoils
 from ductedfanlib.geometry.airfoils import Airfoil
 
 # --- Constants ---
@@ -26,7 +24,6 @@ class BEMTAnalysisError(Exception):
 def _calculate_f_root_exponent(num_blades: int, r_norm: float, r_hub_norm: float, phi_rad: float) -> float:
     """
     Exponent 'f_root_exp_arg' for F_root. Uses Prandtl hub loss.
-    (Original Dayhoum Eq 19 for f_root was problematic).
     """
     if r_norm <= r_hub_norm + 1e-6 or r_hub_norm <= 1e-6: # At/inside hub or point hub
         return 1000.0 # Large value for small F_root (high loss)

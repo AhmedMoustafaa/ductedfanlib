@@ -73,12 +73,12 @@ class DuctedFan:
                 self.rotor_axial_position,
                 num_profile_points_for_interp=num_profile_points_for_check
             )
-        except ValueError as e:  # Likely if rotor_axial_position is outside duct's defined z-range
+        except ValueError as e:
             raise ValueError(
                 f"Cannot validate geometry: Rotor axial position {self.rotor_axial_position:.4f}m "
                 f"may be outside the duct's defined axial range. Duct error: {e}"
             ) from e
-        except RuntimeError as e:  # If duct interpolator failed
+        except RuntimeError as e:
             raise RuntimeError(
                 f"Cannot validate geometry due to duct processing error: {e}"
             ) from e
@@ -93,8 +93,7 @@ class DuctedFan:
                 f"Rotor effective diameter (incl. tip clearance): {required_duct_diameter_for_rotor:.4f}m, "
                 f"Duct inner diameter: {duct_diameter_at_rotor_plane:.4f}m."
             )
-        # Optionally, print a success message or just pass silently
-        # print("Geometry validation successful: Rotor fits within duct.")
+
 
     def get_overall_dimensions(self, num_duct_profile_points: int = 100) -> Dict[str, Optional[float]]:
         """
@@ -110,34 +109,26 @@ class DuctedFan:
         """
         dims = {
             "overall_length": None,
-            "max_outer_diameter": None,  # Assuming duct profile defines inner diameter for now
+            "max_outer_diameter": None,
             "rotor_diameter": self.rotor.diameter
         }
 
         try:
-            # Duct length
-            # Use explicit length if provided, otherwise try to derive from profile
             if self.duct.length is not None:
                 dims["overall_length"] = self.duct.length
             else:
-                derived_length = self.duct.derived_length  # Property now uses cached points or generates
+                derived_length = self.duct.derived_length
                 if derived_length is not None:
                     dims["overall_length"] = derived_length
 
             # Max duct inner diameter
             profile_points = self.duct.get_profile_points(num_points=num_duct_profile_points)
             if profile_points is not None and profile_points.shape[0] > 0:
-                # profile_points are (z, r), so max radius is max of 2nd column
                 max_radius = np.max(profile_points[:, 1])
-                dims["max_outer_diameter"] = 2 * max_radius  # This is inner diameter, outer depends on thickness
-
-            # For a true "outer" diameter, we'd need duct thickness information.
-            # For now, "max_outer_diameter" will represent the max inner diameter of the duct.
+                dims["max_outer_diameter"] = 2 * max_radius
 
         except Exception as e:
             print(f"Warning: Could not determine some overall dimensions due to an error: {e}")
-            # Dimensions that couldn't be calculated will remain None
-
         return dims
 
     def get_diffusion_ratio(self):
@@ -147,7 +138,7 @@ class DuctedFan:
 
     def __repr__(self) -> str:
         return (
-            f"<DuctedFan rotor={self.rotor!r}, \n"  # Rotor repr already ends with >
-            f" duct={self.duct!r}, \n"  # Duct repr already ends with >
+            f"<DuctedFan rotor={self.rotor!r}, \n"
+            f" duct={self.duct!r}, \n"
             f" tip_clearance={self.tip_clearance:.4f}m, rotor_axial_pos={self.rotor_axial_position:.3f}m>"
         )

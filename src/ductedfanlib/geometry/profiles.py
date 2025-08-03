@@ -63,8 +63,6 @@ class LinearDistribution:
         """
         if isinstance(eta, (float, int)):
             if not (0.0 <= eta <= 1.0):
-                # Or raise ValueError, or allow extrapolation. For now, print warning.
-                # For profiles, eta is usually strictly 0-1.
                 # print(f"Warning: eta ({eta}) is outside the typical [0, 1] range.")
                 pass # Allow extrapolation for now
 
@@ -163,8 +161,6 @@ def discretize_distribution(
     if spacing == "linear":
         eta_values = np.linspace(eta_start, eta_end, num_points)
     elif spacing == "cosine":
-        # Using the helper from airfoils.py (or redefine/import if preferred)
-        # For now, let's redefine for module independence, or assume it will be moved to utils
         angle = np.linspace(0, np.pi, num_points)
         normalized_cosine = (1 - np.cos(angle)) / 2.0 # 0 to 1
         eta_values = eta_start + (eta_end - eta_start) * normalized_cosine

@@ -4,7 +4,7 @@ These are useful for defining duct profiles, blade camber lines, etc.
 """
 from typing import Union, List, Optional
 import numpy as np
-from scipy.special import comb  # For binomial coefficients C(n, k) for Bezier
+from scipy.special import comb
 
 
 class BezierCurve:
@@ -33,7 +33,7 @@ class BezierCurve:
         self.degree = self.num_control_points - 1
         self.dimension = self.control_points.shape[1]
 
-        if self.degree < 1:  # Linear Bezier needs at least 2 points
+        if self.degree < 1:
             raise ValueError("A Bezier curve must have at least 2 control points (degree >= 1).")
 
     def _bernstein_polynomial(self, i: int, t: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
@@ -43,8 +43,7 @@ class BezierCurve:
         where n is the degree of the Bezier curve.
         """
         n = self.degree
-        # scipy.special.comb(N,k) computes "N choose k"
-        binomial_coeff = comb(n, i, exact=False)  # exact=False returns float
+        binomial_coeff = comb(n, i, exact=False)
         return binomial_coeff * (t ** i) * ((1 - t) ** (n - i))
 
     def __call__(self, t: Union[float, np.ndarray]) -> np.ndarray:
@@ -62,9 +61,7 @@ class BezierCurve:
                 If t is an array of M values, returns a 2D array of shape (M, D).
         """
         t_arr = np.asarray(t, dtype=float)
-        # Ensure t is within or close to [0, 1] range for typical use, though formula works outside.
-        # if np.any(t_arr < 0) or np.any(t_arr > 1):
-        # print("Warning: Bezier parameter t is outside the typical [0, 1] range.")
+
 
         if t_arr.ndim == 0:  # Scalar t
             point_on_curve = np.zeros(self.dimension)
@@ -75,7 +72,6 @@ class BezierCurve:
             points_on_curve = np.zeros((len(t_arr), self.dimension))
             for i in range(self.num_control_points):
                 bernstein_values = self._bernstein_polynomial(i, t_arr)
-                # Expand dims for broadcasting: bernstein_values[:, np.newaxis] * self.control_points[i]
                 points_on_curve += bernstein_values[:, np.newaxis] * self.control_points[i]
             return points_on_curve
 
@@ -147,22 +143,16 @@ class SplineCurve:
                 f"Number of data points ({self.num_data_points}) must be greater than spline degree ({self.degree})."
             )
 
-        # splprep needs coordinates as a list of 1D arrays (e.g., [x_coords, y_coords])
         coords_for_splprep = [self.points[:, d] for d in range(self.dimension)]
-
-        # tck is a tuple (t,c,k) containing the vector of knots, B-spline coefficients, and degree.
-        # u is the array of parameter values corresponding to the input data points.
         try:
             self.tck, self.u = splprep(
                 coords_for_splprep,
                 s=smooth_factor,
                 k=self.degree,
-                per=int(periodic),  # splprep expects 0 or 1 for per
-                quiet=2  # Suppress Fortran messages
+                per=int(periodic),
+                quiet=2
             )
         except Exception as e:
-            # splprep can raise various errors (e.g., TypeError if too few points,
-            # _fitpack. διαδικασίαข้อผิดพลาด if smoothing factor is too large for noisy data)
             raise RuntimeError(f"SciPy splprep failed: {e}") from e
 
     def __call__(self, t_norm: Union[float, np.ndarray]) -> np.ndarray:
@@ -179,20 +169,9 @@ class SplineCurve:
                         or (M, D) if t_norm is an array of M values.
         """
         t_norm_arr = np.asarray(t_norm, dtype=float)
-
-        # The parameter 'u' returned by splprep usually ranges from 0 to 1 for open curves.
-        # For periodic curves, it also often spans 0 to 1, representing one full period.
-        # We evaluate splev with these 'u' values.
-        # If t_norm is intended to represent this 0-1 range directly:
         u_eval = t_norm_arr
-        # An alternative mapping if self.u had a different range:
-        # u_eval = self.u.min() + t_norm_arr * (self.u.max() - self.u.min())
-
-        # splev returns a list of arrays (one for each dimension)
         evaluated_coords_list = splev(u_eval, self.tck)
-
-        # Stack them into (D, M) and transpose to (M, D) or (D,)
-        if t_norm_arr.ndim == 0:  # Scalar input
+        if t_norm_arr.ndim == 0:
             return np.array([coords[0] if hasattr(coords, '__getitem__') and len(coords) > 0 else coords for coords in
                              evaluated_coords_list])
         else:  # Array input

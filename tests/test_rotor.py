@@ -1,4 +1,3 @@
-# In a test script
 from ductedfanlib.core import Blade
 from ductedfanlib.geometry.airfoils import Airfoil, generate_naca4_coordinates
 from ductedfanlib.geometry.profiles import LinearDistribution
@@ -10,14 +9,11 @@ af_mid = generate_naca4_coordinates("4412", 61)
 af_tip = generate_naca4_coordinates("4410", 61)  # Thinner tip airfoil
 
 # Define airfoil sections along the span (eta values as keys)
-# Using OrderedDict to show intent, though Blade __init__ will sort it
 airfoil_sections = {
     0.0: af_root,
     0.6: af_mid,  # Airfoil 'af_mid' applies from eta=0.6 up to (but not including) eta=0.9
     0.9: af_tip   # Airfoil 'af_tip' applies from eta=0.9 up to eta=1.0
 }
-# If you define it with unsorted keys, the Blade __init__ sorts them.
-# airfoil_sections = {0.6: af_mid, 0.0: af_root, 1.0: af_tip} # Will be sorted internally
 
 chord_dist = LinearDistribution(start_value=0.2, end_value=0.1)
 twist_dist = LinearDistribution(start_value=25.0, end_value=10.0)

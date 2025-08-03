@@ -7,10 +7,9 @@ from scipy.optimize import fsolve
 from scipy.integrate import trapezoid as trapz
 from scipy.special import ellipk
 from scipy.optimize import brentq
-
 from ductedfanlib.geometry.airfoils import Airfoil
 
-# --- Constants ---
+# Constants
 DEFAULT_A_INITIAL = 0.1
 DEFAULT_AP_INITIAL = 0.01
 DEFAULT_CONVERGENCE_TOL_FSOLVE = 1e-7
@@ -21,7 +20,7 @@ class BEMTAnalysisError(Exception):
     """Custom exception for BEMT analysis errors."""
     pass
 
-# --- Loss Factor and Elliptical Integral Functions ---
+
 def _calculate_f_root_exponent(num_blades: int, r_norm: float, r_hub_norm: float, phi_rad: float) -> float:
     sin_phi_safe = max(1e-4, abs(np.sin(phi_rad)))
     if r_norm <= r_hub_norm + 1e-6 or r_hub_norm <= 1e-6:

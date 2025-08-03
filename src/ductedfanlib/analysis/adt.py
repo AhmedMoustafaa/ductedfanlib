@@ -12,7 +12,6 @@ def calculate_ideal_performance_hover(
     """
     Calculates ideal ducted fan performance in hover (static thrust)
     using 1D momentum theory (Actuator Disk Theory).
-    (Content remains the same as before, just import change)
     """
     if (thrust_target is None and power_target is None) or \
             (thrust_target is not None and power_target is not None):
@@ -69,7 +68,6 @@ def calculate_ideal_performance_axial(
     """
     Calculates ideal ducted fan performance in axial forward flight
     using 1D momentum theory (Actuator Disk Theory).
-    (Content remains the same as before, just import change)
     """
     if (thrust_target is None and power_target is None) or \
             (thrust_target is not None and power_target is not None):

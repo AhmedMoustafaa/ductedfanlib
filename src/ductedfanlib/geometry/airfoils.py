@@ -4,10 +4,9 @@ airfoil geometry representation, generation, and aerodynamic coefficient lookup.
 """
 from typing import Optional, Tuple, List, Any, Dict, Union
 import numpy as np
-from scipy.interpolate import interp1d, PchipInterpolator # Pchip for potentially smoother polars
+from scipy.interpolate import interp1d, PchipInterpolator
 from pathlib import Path
 
-# Analysis tool imports (gracefully handle if not installed)
 try:
     import neuralfoil as nf
     NEURALFOIL_AVAILABLE = True
@@ -20,7 +19,6 @@ try:
 except ImportError:
     AEROSANDBOX_XFOIL_AVAILABLE = False
 
-# --- Helper function for point distribution ---
 def _cosine_spacing(x_start: float, x_end: float, num_points: int) -> np.ndarray:
     if num_points == 1: return np.array([(x_start + x_end) / 2])
     if num_points < 1: return np.array([])
@@ -41,7 +39,7 @@ class Airfoil:
                  coordinates: Optional[np.ndarray] = None,
                  upper_coords: Optional[np.ndarray] = None,
                  lower_coords: Optional[np.ndarray] = None,
-                 thickness_to_chord_ratio: Optional[float] = None, # ** NEW optional arg **
+                 thickness_to_chord_ratio: Optional[float] = None,
                  cd_max_poststall: float = 1.5,
                  default_analysis_method: str = "neuralfoil"):
 
@@ -65,7 +63,7 @@ class Airfoil:
         self.cd_stall: Optional[float] = None
         self.cd_max_poststall: float = float(cd_max_poststall)
 
-        self._thickness_to_chord_ratio: Optional[float] = thickness_to_chord_ratio # ** MODIFIED: Store if provided **
+        self._thickness_to_chord_ratio: Optional[float] = thickness_to_chord_ratio
         self._lift_curve_slope_cache: Dict[Tuple, float] = {}
 
         # ... (rest of __init__ as before) ...
@@ -75,8 +73,7 @@ class Airfoil:
         self.default_analysis_method = default_analysis_method
 
 
-    # --- Geometry Methods ---
-    # ... (_sort_surface, _validate_and_set_surface_coords, _parse_combined_coordinates, _normalize_and_align_surfaces as before) ...
+    # Geometry Methods
     @staticmethod
     def _sort_surface(coords: np.ndarray) -> np.ndarray:
         if coords.shape[0] > 1 and coords[0, 0] > coords[-1, 0]:
@@ -124,7 +121,6 @@ class Airfoil:
             self._coordinates = np.vstack((np.flipud(self._upper_surface), self._lower_surface[1:, :]))
         return self._coordinates
 
-    # ... (upper_surface_coords, lower_surface_coords, get_interpolated_coordinates, plot methods as before) ...
     @property
     def upper_surface_coords(self) -> np.ndarray:
         if self._upper_surface is None: raise ValueError("Upper surface not defined.")
@@ -165,12 +161,9 @@ class Airfoil:
         calculation may fail or be inaccurate for highly cambered airfoils with
         non-monotonic x-coordinates.
         """
-        # ** MODIFIED/FIXED LOGIC **
         if self._thickness_to_chord_ratio is not None:
             return self._thickness_to_chord_ratio
 
-        # Fallback to geometric calculation if t/c not provided at init
-        # This is primarily for airfoils loaded from files.
         print(f"Warning: t/c for airfoil '{self.name}' not provided. Attempting geometric calculation.")
 
         try:
@@ -182,7 +175,6 @@ class Airfoil:
             lower_x = self.lower_surface_coords[lower_x_sorted_indices, 0]
             lower_y = self.lower_surface_coords[lower_x_sorted_indices, 1]
 
-            # Check if x-coordinates are monotonic *after* sorting. If not, interp will fail.
             if not np.all(np.diff(upper_x) > -1e-9) or not np.all(np.diff(lower_x) > -1e-9):
                  raise ValueError("X-coordinates are non-monotonic even after sorting.")
 
@@ -206,9 +198,6 @@ class Airfoil:
             self._thickness_to_chord_ratio = 0.0
             return 0.0
 
-    # ... (All other aerodynamic methods: add_polar, _get_closest_Re_polar_data, _analyze_neuralfoil,
-    #      _analyze_xfoil, characterize_stall_properties, get_lift_curve_slope,
-    #      get_lift_drag_coeffs, __repr__ remain exactly as in the previous "on-the-fly analysis" version) ...
     def add_polar(self, Re: float, alpha_deg: np.ndarray, cl: np.ndarray, cd: np.ndarray, cm: Optional[np.ndarray] = None):
         if not all(isinstance(arr, np.ndarray) for arr in [alpha_deg, cl, cd]): raise TypeError("alpha_deg, cl, cd must be NumPy arrays.")
         if not (alpha_deg.shape == cl.shape == cd.shape): raise ValueError("alpha_deg, cl, cd must have the same shape.")
@@ -216,6 +205,8 @@ class Airfoil:
         sort_indices = np.argsort(alpha_deg)
         self.polars[float(Re)] = {"alpha_deg": alpha_deg[sort_indices], "cl": cl[sort_indices], "cd": cd[sort_indices], "cm": cm[sort_indices] if cm is not None else np.zeros_like(alpha_deg)}
         self.stall_angle_deg = None; self.cl_stall = None; self.cd_stall = None; self._lift_curve_slope_cache = {}
+
+
     def _get_closest_Re_polar_data(self, target_Re: float) -> Optional[Dict[str, np.ndarray]]:
         if not self.polars: return None
         available_Res = np.array(list(self.polars.keys())); closest_Re_idx = np.argmin(np.abs(available_Res - target_Re)); closest_Re = available_Res[closest_Re_idx]
@@ -232,6 +223,8 @@ class Airfoil:
         try: result_dict = xf.alpha(alpha_deg); cl = result_dict.get('cl',0.0); cd = result_dict.get('cd',0.01)
         except Exception: cl, cd = 0.0, 0.01
         return float(cl), float(cd)
+
+
     def characterize_stall_properties(self, Re: float, analysis_method: Optional[str]=None, alpha_range_deg: Tuple[float, float]=(-5.0, 25.0), num_alpha_points: int=61) -> bool:
         method = analysis_method if analysis_method is not None else self.default_analysis_method; alphas = np.linspace(alpha_range_deg[0], alpha_range_deg[1], num_alpha_points); cls, cds = np.zeros_like(alphas), np.zeros_like(alphas)
         if method == "polar":
@@ -251,6 +244,8 @@ class Airfoil:
         if len(cls) > 0 and not np.all(np.isnan(cls)):
             idx = np.nanargmax(cls); self.stall_angle_deg = float(alphas[idx]); self.cl_stall = float(cls[idx]); self.cd_stall = float(cds[idx]); return True
         return False
+
+
     def get_lift_curve_slope(self, Re: float, alpha0_deg: float=0.0, delta_alpha_deg: float=0.5, analysis_method: Optional[str]=None) -> float:
         method = analysis_method if analysis_method is not None else self.default_analysis_method
         cache_key = (Re, method, alpha0_deg, delta_alpha_deg)
@@ -262,6 +257,7 @@ class Airfoil:
         cl_alpha_per_rad = cl_alpha_per_deg * (180.0/np.pi)
         self._lift_curve_slope_cache[cache_key] = cl_alpha_per_rad
         return cl_alpha_per_rad
+
     def get_lift_drag_coeffs(self, alpha_deg: float, Re: float, analysis_method: Optional[str]=None, apply_viterna_poststall: bool=True, fixed_cd_max_for_poststall: Optional[float]=None) -> Tuple[float,float]:
         method = analysis_method if analysis_method is not None else self.default_analysis_method; cl_direct, cd_direct = 0.0, 0.01
         if method=="polar":
@@ -293,7 +289,6 @@ class Airfoil:
         stall_info = f"alpha_s={self.stall_angle_deg:.1f}deg" if self.stall_angle_deg is not None else "stall_not_characterized"
         return f"<Airfoil name='{self.name}', t/c={tc_val}, {stall_info}, polars_loaded={len(self.polars)}, method='{self.default_analysis_method}'>"
 
-# --- Utility functions for NACA and File Loading ---
 def generate_naca4_coordinates(naca_code: str, num_points_per_surface: int = 81,
                                  finite_te: bool = False, te_thickness_fraction: float = 0.001,
                                  **kwargs_for_airfoil_init) -> Airfoil:

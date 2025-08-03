@@ -4,7 +4,7 @@ Ensures the BEMT function runs, produces outputs of the correct type,
 and that basic physical trends are observed.
 """
 import numpy as np
-import pytest  # Pytest for test organization and assertions
+import pytest
 import sys
 import os
 
@@ -22,8 +22,7 @@ from ductedfanlib.geometry.meshing import get_rotor_bemt_stations
 from ductedfanlib.analysis.bemt import calculate_bemt_performance_dayhoum, BEMTAnalysisError
 
 
-# --- Test Setup ---
-@pytest.fixture(scope="module")  # Fixture to set up rotor once for all tests in this module
+@pytest.fixture(scope="module")
 def basic_open_rotor_setup():
     """Sets up a simple open rotor configuration for testing BEMT."""
     # 1. Airfoil with simplified, predictable polar
@@ -95,8 +94,6 @@ def basic_open_rotor_setup():
         "rotor_stations": rotor_stations
     }
 
-
-# --- Test Functions ---
 
 def test_bemt_runs_without_errors(basic_open_rotor_setup):
     """Test if the BEMT calculation completes without raising an unhandled exception."""

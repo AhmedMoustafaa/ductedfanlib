@@ -4,10 +4,9 @@ Defines the Duct class for representing the shroud of a ducted fan.
 from typing import Any, List, Tuple, Dict, Union, Optional, Callable
 from ductedfanlib.geometry.curves import BezierCurve, SplineCurve  # Import curve types
 import numpy as np
-from scipy.interpolate import interp1d  # For get_diameter_at_axial_location
+from scipy.interpolate import interp1d
 
-# Define a type hint for curve objects we expect
-CurveObjectType = Union[BezierCurve, SplineCurve, Any]  # 'Any' for future custom curve types
+CurveObjectType = Union[BezierCurve, SplineCurve, Any]
 
 
 class Duct:
@@ -65,8 +64,6 @@ class Duct:
         self.profile_curve: CurveObjectType = profile_curve
         self.reference_axial_position: float = float(reference_axial_position)
 
-        # Store explicit dimensions if provided; they might be used for high-level checks
-        # or to guide generation if profile_curve was to be generated internally.
         self.length: Optional[float] = float(length) if length is not None else None
         self.inlet_diameter: Optional[float] = float(inlet_diameter) if inlet_diameter is not None else None
         self.outlet_diameter: Optional[float] = float(outlet_diameter) if outlet_diameter is not None else None
@@ -82,13 +79,9 @@ class Duct:
             if points.shape[1] != 2:
                 raise ValueError("Profile curve must generate 2D points (axial_coord, radial_coord).")
 
-            # Ensure points are sorted by axial coordinate for interpolation
             sorted_indices = np.argsort(points[:, 0])
             self._cached_profile_points = points[sorted_indices]
 
-            # Create interpolator: axial_coord -> radial_coord
-            # Use bounds_error=False and fill_value=np.nan to handle extrapolation gracefully
-            # or catch it. For now, let's be strict and assume axial_location is within bounds.
             try:
                 self._radius_interpolator = interp1d(
                     self._cached_profile_points[:, 0],  # Axial coordinates
@@ -97,9 +90,6 @@ class Duct:
                     bounds_error=True  # Raise error if outside interpolation range
                 )
             except ValueError as e:
-                # This can happen if axial coordinates are not strictly increasing
-                # (should be handled by sorting, but good to catch)
-                # Or if too few points for certain interpolation kinds.
                 self._radius_interpolator = None  # Invalidate
                 print(f"Warning: Could not create radius interpolator for duct '{self!r}'. {e}")
 
@@ -187,10 +177,9 @@ class Duct:
         """Attempts to derive inlet diameter from profile (assumes inlet at min axial coord)."""
         # This assumes the profile starts at the inlet.
         try:
-            # Ensure profile is generated to get radius at min_z
-            min_z = self.get_profile_points(num_points=2)[:, 0].min()  # Get min_z from at least 2 points
+            min_z = self.get_profile_points(num_points=2)[:, 0].min()
             return 2.0 * self.get_radius_at_axial_location(min_z)
-        except (RuntimeError, ValueError):  # If profile/interpolator fails or min_z is out of bounds
+        except (RuntimeError, ValueError):
             return None
 
     def __repr__(self) -> str:

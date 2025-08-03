@@ -2,7 +2,6 @@ import numpy as np
 import sys
 import os
 
-# Ensure ductedfanlib is importable
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(script_dir)
 src_dir = os.path.join(project_root, 'src')
