@@ -7,9 +7,9 @@ from typing import Dict, Any
 import numpy as np
 from .core import DuctedFan  # We'll pass the whole object
 from .geometry.meshing import get_rotor_bemt_stations
-from .analysis.bemt2 import (  # Import the renamed, internal functions
-    _solve_bemt_hover_dayhoum,
-    _solve_bemt_axial_general,
+from .analysis.bemt2 import (
+    calculate_bemt_performance_axial,
+    calculate_bemt_performance_axial,
     DEFAULT_CLA_2PI
 )
 from ductedfanlib.core.OperatingConditions import OperatingConditions

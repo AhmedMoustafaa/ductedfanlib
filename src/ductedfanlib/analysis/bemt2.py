@@ -107,7 +107,6 @@ def _calculate_F_sh(num_blades: int, r_norm: float, r_hub_norm: float, tip_radiu
     return np.clip(F_r * F_g, 0.01, 1.0)
 
 
-# --- CORRECTED Element Solver for Axial Flight ---
 def _solve_element_induction_factors_axial(
     V_axial_ms: float, omega_rads: float, radius_m: float, chord_m: float, twist_deg: float,
     airfoil_obj: Airfoil, num_blades: int, rho_kgm3: float, mu_Pas: float,

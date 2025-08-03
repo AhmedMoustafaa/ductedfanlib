@@ -5,11 +5,10 @@ from typing import Dict, Any, List, Union, Tuple
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from dataclasses import dataclass, asdict
-from scipy.interpolate import make_interp_spline # For smooth streamline plotting
+from dataclasses import dataclass
+from scipy.interpolate import make_interp_spline
 from copy import deepcopy
 
-# Assuming your core and analysis modules are structured as we discussed
 from .core import DuctedFan, Rotor, Blade
 from .geometry.meshing import get_rotor_bemt_stations
 from .analysis.bemt2 import (
@@ -144,7 +143,7 @@ class ParametricStudy:
         for j_target in j_values_to_plot:
             closest_key = min(self.spanwise_results.keys(), key=lambda k: abs(float(k.split('=')[1]) - j_target))
             # It's important to only add keys that actually have data
-            if self.spanwise_results[closest_key]:  # <--- ADD THIS CHECK
+            if self.spanwise_results[closest_key]:
                 plot_keys.append(closest_key)
             else:
                 print(
@@ -172,13 +171,11 @@ class ParametricStudy:
 
         for key in plot_keys:
             data = self.spanwise_results[key]
-            # Since we've already checked if data is empty in plot_keys,
-            # this DataFrame creation should now be safe and always have columns.
             df_span = pd.DataFrame(data).sort_values(by="eta")
-            eta = df_span["eta"]  # 'eta' column should now always exist if df_span is not empty
+            eta = df_span["eta"]
 
             for i, (metric_key, ylabel) in enumerate(plot_metrics):
-                if metric_key in df_span.columns:  # <--- Use .columns for robustness
+                if metric_key in df_span.columns:
                     axes[i].plot(eta, df_span[metric_key], '.-', label=f"J={float(key.split('=')[1]):.2f}")
                 else:
                     print(
@@ -218,13 +215,12 @@ class ParametricStudy:
             a_local = a_interp(r_disk); v_disk = v_axial_ms * (1 + a_local)
             z_points = np.array([plot_upstream_z, rotor_z, plot_downstream_z]); r_points = np.zeros(3); r_points[1] = r_disk
 
-            # ** FIXED PART: Check for negative values before sqrt **
             upstream_ratio = v_disk / v_axial_ms if v_axial_ms > 1e-6 else 10.0 # Avoid division by zero
             if upstream_ratio >= 0:
                 r_points[0] = r_disk * np.sqrt(upstream_ratio)
             else:
                 print(f"Warning: Cannot draw upstream streamline for r={r_disk:.3f}m, flow state is complex (a < -1).")
-                continue # Skip this streamline
+                continue
 
             v_wake = v_axial_ms * (1 + 2 * a_local)
             if v_disk > 1e-6 and v_wake > 1e-6:
@@ -233,7 +229,7 @@ class ParametricStudy:
                     r_points[2] = r_disk * np.sqrt(downstream_ratio)
                 else:
                     print(f"Warning: Cannot draw downstream streamline for r={r_disk:.3f}m, flow state is complex (a < -0.5).")
-                    continue # Skip this streamline
+                    continue
             else: r_points[2] = r_disk
 
             if len(z_points) > 2 and not np.any(np.isnan(r_points)):
