@@ -30,7 +30,7 @@ To get started with DuctedFanLib, clone the repository and install it in your Py
 
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/AhmedMoustafaa/DuctedFanLib](https://github.com/AhmedMoustafaa/DuctedFanLib)
+    git clone https://github.com/AhmedMoustafaa/DuctedFanLib
     cd DuctedFanLib
     ```
 
