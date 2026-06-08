@@ -1,37 +1,54 @@
 """
-DuctedFanLib: A Python Library for Ducted Fan Design, Analysis, and Optimization
-================================================================================
+DuctedFanLib — Ducted Fan Design, Analysis, and Post-processing
+===============================================================
 
-This library provides tools for the parametric design of ducted fan components,
-analysis using various fidelity methods, and optimization of designs.
-
-Main components can be imported directly from this top-level package.
+Quick start
+-----------
+>>> from ductedfanlib import (
+...     Airfoil, generate_naca4_coordinates,
+...     Blade, Rotor, Duct, DuctedFan,
+...     OperatingConditions, ParametricStudy,
+...     calculate_bemt_performance_axial,
+...     run_bemt_analysis,
+... )
 """
 
-# Define the package version
-__version__ = "0.0.1"  # Start with a pre-release version
+__version__ = "0.0.2"
 
-# Import key classes and functions from submodules to make them
-# available at the top-level package import.
+# ── geometry ──────────────────────────────────────────────────────────────────
+from .geometry.airfoils  import Airfoil, generate_naca4_coordinates, load_airfoil_from_file
+from .geometry.profiles  import LinearDistribution, ConstantDistribution, PolynomialDistribution
+from .geometry.curves    import BezierCurve, SplineCurve
+from .geometry.meshing   import get_rotor_bemt_stations
 
+# ── core design objects ───────────────────────────────────────────────────────
+from .core.blade             import Blade
+from .core.rotor             import Rotor
+from .core.duct              import Duct
+from .core.design            import DuctedFan
+from .core.OperatingConditions import OperatingConditions
 
-# From the 'geometry' module (specifically airfoils for now)
-from .geometry.airfoils import Airfoil, generate_naca4_coordinates, load_airfoil_from_file
-# As you add more to geometry (profiles, curves), you can expose them here too if desired.
-# e.g., from .geometry.profiles import LinearProfile
+# ── analysis ──────────────────────────────────────────────────────────────────
+from .analysis.bemt2   import calculate_bemt_performance_axial
+from .analysis.adt     import calculate_ideal_performance_hover, calculate_ideal_performance_axial
+from .analysis.manager import run_bemt_analysis
 
-# (Optional) Define what 'from ductedfanlib import *' would import.
-# It's generally better for users to import specific names, but __all__ can be defined.
+# ── study / post-processing ───────────────────────────────────────────────────
+from .study import ParametricStudy
+
 __all__ = [
-    # Geometry components
-    "Airfoil",
-    "generate_naca4_coordinates",
-    "load_airfoil_from_file",
-    # Version
+    # geometry
+    "Airfoil", "generate_naca4_coordinates", "load_airfoil_from_file",
+    "LinearDistribution", "ConstantDistribution", "PolynomialDistribution",
+    "BezierCurve", "SplineCurve", "get_rotor_bemt_stations",
+    # core
+    "Blade", "Rotor", "Duct", "DuctedFan", "OperatingConditions",
+    # analysis
+    "calculate_bemt_performance_axial",
+    "calculate_ideal_performance_hover", "calculate_ideal_performance_axial",
+    "run_bemt_analysis",
+    # study
+    "ParametricStudy",
+    # meta
     "__version__",
 ]
-
-# You could also set up a default logger here if your library will do extensive logging
-# import logging
-# logging.getLogger(__name__).addHandler(logging.NullHandler())
-# print(f"DuctedFanLib version {__version__} loaded.") # Optional: for debug or verbose loading

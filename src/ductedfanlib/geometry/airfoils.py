@@ -259,16 +259,30 @@ class Airfoil:
         return cl_alpha_per_rad
 
     def get_lift_drag_coeffs(self, alpha_deg: float, Re: float, analysis_method: Optional[str]=None, apply_viterna_poststall: bool=True, fixed_cd_max_for_poststall: Optional[float]=None) -> Tuple[float,float]:
-        method = analysis_method if analysis_method is not None else self.default_analysis_method; cl_direct, cd_direct = 0.0, 0.01
-        if method=="polar":
-            polar=self._get_closest_Re_polar_data(Re)
-            if polar: cl_direct=float(PchipInterpolator(polar["alpha_deg"], polar["cl"], extrapolate=True)(alpha_deg)); cd_direct=float(PchipInterpolator(polar["alpha_deg"], polar["cd"], extrapolate=True)(alpha_deg))
-            else: return self.get_lift_drag_coeffs(alpha_deg, Re, analysis_method=self.default_analysis_method if self.default_analysis_method!="polar" else "neuralfoil", apply_viterna_poststall=apply_viterna_poststall, fixed_cd_max_for_poststall=fixed_cd_max_for_poststall)
-        elif method=="neuralfoil":
-            if not NEURALFOIL_AVAILABLE: raise RuntimeError("NeuralFoil not installed."); cl_arr,cd_arr=self._analyze_neuralfoil(alpha_deg, Re); cl_direct=float(cl_arr.item(0)if isinstance(cl_arr,np.ndarray)and cl_arr.size==1 else cl_arr); cd_direct=float(cd_arr.item(0)if isinstance(cd_arr,np.ndarray)and cd_arr.size==1 else cd_arr)
-        elif method=="xfoil":
-            if not AEROSANDBOX_XFOIL_AVAILABLE: raise RuntimeError("XFoil not installed."); cl_direct,cd_direct=self._analyze_xfoil(alpha_deg, Re)
-        else: raise ValueError(f"Unknown analysis_method: {method}")
+        method = analysis_method if analysis_method is not None else self.default_analysis_method
+        cl_direct, cd_direct = 0.0, 0.01
+        if method == "polar":
+            polar = self._get_closest_Re_polar_data(Re)
+            if polar:
+                cl_direct = float(PchipInterpolator(polar["alpha_deg"], polar["cl"], extrapolate=True)(alpha_deg))
+                cd_direct = float(PchipInterpolator(polar["alpha_deg"], polar["cd"], extrapolate=True)(alpha_deg))
+            else:
+                fallback = self.default_analysis_method if self.default_analysis_method != "polar" else "neuralfoil"
+                return self.get_lift_drag_coeffs(alpha_deg, Re, analysis_method=fallback,
+                                                  apply_viterna_poststall=apply_viterna_poststall,
+                                                  fixed_cd_max_for_poststall=fixed_cd_max_for_poststall)
+        elif method == "neuralfoil":
+            if not NEURALFOIL_AVAILABLE:
+                raise RuntimeError("NeuralFoil not installed.")
+            cl_arr, cd_arr = self._analyze_neuralfoil(alpha_deg, Re)
+            cl_direct = float(cl_arr.item(0) if isinstance(cl_arr, np.ndarray) and cl_arr.size == 1 else cl_arr)
+            cd_direct = float(cd_arr.item(0) if isinstance(cd_arr, np.ndarray) and cd_arr.size == 1 else cd_arr)
+        elif method == "xfoil":
+            if not AEROSANDBOX_XFOIL_AVAILABLE:
+                raise RuntimeError("XFoil not installed.")
+            cl_direct, cd_direct = self._analyze_xfoil(alpha_deg, Re)
+        else:
+            raise ValueError(f"Unknown analysis_method: {method}")
         if not apply_viterna_poststall: return cl_direct, cd_direct
         if self.stall_angle_deg is None: self.characterize_stall_properties(Re, analysis_method=method)
         alpha_s,cl_s,cd_s=self.stall_angle_deg,self.cl_stall,self.cd_stall

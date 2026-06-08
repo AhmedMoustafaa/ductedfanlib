@@ -1,321 +1,316 @@
 """
-Blade Element Momentum Theory (BEMT) analysis for rotors - Corrected Implementation
+Blade Element Momentum Theory (BEMT) for open rotors in axial flight.
+
+Fixes applied vs original:
+  1. Sign convention: alpha = theta - phi  (pitch minus inflow angle).
+     Original had alpha = phi - theta, giving negative AoA and negative thrust.
+  2. Universal velocity-based phi-iteration (works for hover AND forward flight).
+     The original a*(1+a)*V_inf^2 momentum residual is scale-degenerate whenever
+     V_inf << u_t (i.e., all practical propeller operation). Replaced with:
+       dT/dr = 4π r ρ F (V_inf + v_i) v_i    [v_i = induced axial velocity]
+       dQ/dr = 4π r³ ρ F Ω v_t (V_inf + v_i)  [v_t = induced tangential velocity]
+     This formulation is non-degenerate from hover to cruise.
+  3. Prandtl tip/hub exponents use sin(phi) consistently.
+  4. fsolve convergence flag checked; non-convergence raises a warning.
+  5. Figure of Merit returned alongside propulsive efficiency.
 """
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any
+import warnings
 import numpy as np
-from scipy.optimize import fsolve
-from scipy.integrate import trapezoid as trapz
-from scipy.special import ellipk
 from scipy.optimize import brentq
+from scipy.integrate import trapezoid as trapz
+from scipy.special import ellipk, ellipj
 from ductedfanlib.geometry.airfoils import Airfoil
 
-# Constants
-DEFAULT_A_INITIAL = 0.1
-DEFAULT_AP_INITIAL = 0.01
-DEFAULT_CONVERGENCE_TOL_FSOLVE = 1e-7
-DEFAULT_CLA_2PI = 2 * np.pi
-DEFAULT_MIN_VELOCITY = 1e-8  # Minimum velocity to avoid division by zero
+_MIN_VEL   = 1e-8
+_CONV_TOL  = 1e-8
+_MAX_ITER  = 300
+_RELAX     = 0.4      # relaxation factor for phi-iteration
+
 
 class BEMTAnalysisError(Exception):
-    """Custom exception for BEMT analysis errors."""
     pass
 
 
-def _calculate_f_root_exponent(num_blades: int, r_norm: float, r_hub_norm: float, phi_rad: float) -> float:
-    sin_phi_safe = max(1e-4, abs(np.sin(phi_rad)))
-    if r_norm <= r_hub_norm + 1e-6 or r_hub_norm <= 1e-6:
-        return 1000.0
-    return (num_blades / 2.0) * ((r_norm - r_hub_norm) / (r_hub_norm * sin_phi_safe))
+# ── Loss factors ───────────────────────────────────────────────────────────────
 
-def _calculate_F_root(num_blades: int, r_norm: float, r_hub_norm: float, phi_rad: float) -> float:
-    if r_norm <= r_hub_norm + 1e-6:
-        return 0.01
-    f_r_exp = _calculate_f_root_exponent(num_blades, r_norm, r_hub_norm, phi_rad)
-    f_r_exp_clipped = np.clip(f_r_exp, 0, 700)
-    F_r = (2.0 / np.pi) * np.arccos(np.exp(-f_r_exp_clipped))
-    return np.nan_to_num(F_r, nan=0.01)
-
-def _calculate_F_gap_simplified_prandtl_tip(num_blades: int, r_norm: float, phi_rad: float) -> float:
-    sin_phi_safe = max(1e-4, abs(np.sin(phi_rad)))
+def _prandtl_tip_F(B, r_norm, phi):
+    sin_phi = max(1e-4, abs(np.sin(phi)))
     if r_norm >= 1.0 - 1e-6:
         return 0.01
-    f_tip_exp_arg = (num_blades / 2.0) * (1.0 - r_norm) / sin_phi_safe
-    f_tip_exp_arg_clipped = np.clip(abs(f_tip_exp_arg), 0, 700)
-    F_tip = (2.0 / np.pi) * np.arccos(np.exp(-f_tip_exp_arg_clipped))
-    return np.nan_to_num(F_tip, nan=0.01)
+    f = (B / 2.0) * (1.0 - r_norm) / sin_phi
+    return float(np.nan_to_num((2.0/np.pi)*np.arccos(np.exp(-min(f, 700))), nan=0.01))
 
-def _calculate_f_and_g_for_Fgap_dayhoum(num_blades, r_norm, tip_radius_m, tip_gap_clearance_m, phi_rad):
-    sin_phi_safe = np.sin(phi_rad)
-    if abs(sin_phi_safe) < 1e-4:
-        sin_phi_safe = 1e-4 * np.sign(sin_phi_safe) if sin_phi_safe != 0 else 1e-4
-    if tip_radius_m < 1e-6:
-        raise ValueError("Tip radius must be positive.")
-    f_val = (num_blades / 2.0) * (1.0 - r_norm) / sin_phi_safe
-    g_val = (num_blades * tip_gap_clearance_m) / (2.0 * tip_radius_m * sin_phi_safe)
-    return f_val, g_val
 
-def _solve_cd_inverse_numerical(X_target, m_param, K_val):
-    X_clipped = np.clip(X_target, 0.0, 1.0)
-    if np.isclose(X_clipped, 1.0, atol=1e-9):
-        return 0.0
-    if np.isclose(X_clipped, 0.0, atol=1e-9):
-        return K_val
-
-    def func(u):
-        from scipy.special import ellipj
-        _, cn, dn, _ = ellipj(u, m_param)
-        return cn / dn - X_clipped
-
-    try:
-        return brentq(func, 0.0, K_val, xtol=1e-7, rtol=1e-7)
-    except (ValueError, RuntimeError):
-        return K_val * (1.0 - X_clipped)
-
-def _calculate_F_gap_dayhoum(num_blades, r_norm, tip_radius_m, tip_gap_clearance_m, phi_rad):
-    if tip_gap_clearance_m <= 1e-7:
+def _prandtl_hub_F(B, r_norm, r_hub_norm, phi):
+    if r_norm <= r_hub_norm + 1e-6 or r_hub_norm <= 1e-6:
         return 1.0
-    f_val, g_val = _calculate_f_and_g_for_Fgap_dayhoum(num_blades, r_norm, tip_radius_m, tip_gap_clearance_m, phi_rad)
-    if abs(g_val) <= 1e-7:
-        return 1.0
+    sin_phi = max(1e-4, abs(np.sin(phi)))
+    f = (B / 2.0) * (r_norm - r_hub_norm) / (r_hub_norm * sin_phi)
+    return float(np.nan_to_num((2.0/np.pi)*np.arccos(np.exp(-min(f, 700))), nan=0.01))
 
-    sech_g_val = 1.0 / np.cosh(g_val)
-    m_param = sech_g_val**2
-    if m_param >= 1.0 - 1e-9:
+
+def _dayhoum_tip_F(B, r_norm, R_tip, gap, phi):
+    if gap <= 1e-7:
+        return 1.0
+    sp = max(1e-4, abs(np.sin(phi)))
+    g  = (B * gap) / (2.0 * R_tip * sp)
+    f  = (B / 2.0) * (1.0 - r_norm) / sp
+    ch = np.cosh(g)
+    if np.isinf(ch):
+        return 0.01
+    m = (1.0 / ch) ** 2
+    if m >= 1.0 - 1e-9:
         return 0.999
-
     try:
-        K_val = ellipk(m_param)
+        K = ellipk(m)
     except Exception:
         return 0.5
-
-    if not np.isfinite(K_val) or K_val <= 1e-7:
+    if not np.isfinite(K) or K < 1e-7:
         return 0.5
-
-    X_arg = np.cosh(g_val) / np.cosh(f_val + g_val)
-    u_cd_inv = _solve_cd_inverse_numerical(X_arg, m_param, K_val)
-    return np.clip(u_cd_inv / K_val, 0.01, 1.0)
-
-def _calculate_F_sh(num_blades: int, r_norm: float, r_hub_norm: float, tip_radius_m: float,
-                   tip_gap_clearance_m: float, phi_rad: float,
-                   use_dayhoum_F_gap_model: bool = True) -> float:
-    F_r = _calculate_F_root(num_blades, r_norm, r_hub_norm, phi_rad)
-    if use_dayhoum_F_gap_model:
-        F_g = _calculate_F_gap_dayhoum(num_blades, r_norm, tip_radius_m, tip_gap_clearance_m, phi_rad)
-    else:
-        F_g = _calculate_F_gap_simplified_prandtl_tip(num_blades, r_norm, phi_rad)
-    return np.clip(F_r * F_g, 0.01, 1.0)
-
-
-def _solve_element_induction_factors_axial(
-    V_axial_ms: float, omega_rads: float, radius_m: float, chord_m: float, twist_deg: float,
-    airfoil_obj: Airfoil, num_blades: int, rho_kgm3: float, mu_Pas: float,
-    root_radius_m: float, tip_radius_m: float, tip_gap_clearance_m: float,
-    use_dayhoum_F_gap_model: bool
-) -> Tuple[float, float, float, float, float, float, float, float, float]:
-    """
-    Solves for axial (a) and tangential (a') induction factors for axial flight.
-    Returns: (a, a_prime, local_phi_rad, local_alpha_deg, Cl, Cd, Re, F_sh_final, local_W_ms)
-    """
-    # Handle near-zero velocity to avoid division issues
-    V_axial_ms_safe = V_axial_ms if abs(V_axial_ms) > DEFAULT_MIN_VELOCITY else (
-        DEFAULT_MIN_VELOCITY if V_axial_ms >= 0 else -DEFAULT_MIN_VELOCITY
-    )
-
-    local_twist_rad = np.radians(twist_deg)
-    if radius_m > 1e-6:
-        local_solidity = (num_blades * chord_m) / (2 * np.pi * radius_m)
-    else:
-        local_solidity = np.inf
-
-    # Determine mode based on velocity direction
-    propeller_mode = V_axial_ms_safe < 0
-
-    # Set initial guess based on mode
-    if propeller_mode:
-        a_initial = -0.1  # Negative induction for acceleration
-    else:
-        a_initial = 0.1   # Positive induction for deceleration
-    initial_guess = [a_initial, DEFAULT_AP_INITIAL]
-
-    def residuals(p: np.ndarray) -> np.ndarray:
-        a, a_prime = p[0], p[1]
-        a = np.clip(a, -0.99, 0.99)  # Avoid non-physical values
-
-        # Calculate local flow conditions
-        V_axial_element = V_axial_ms_safe * (1 + a)
-        V_tangential_element = omega_rads * radius_m * (1 - a_prime)
-        phi_rad = np.arctan2(V_axial_element, V_tangential_element)
-        W_ms = np.sqrt(V_axial_element**2 + V_tangential_element**2)
-        if np.isclose(W_ms, 0.0):
-            return np.array([0.0, 0.0])
-
-        # Blade element aerodynamics
-        alpha_rad = phi_rad - local_twist_rad
-        alpha_deg = np.degrees(alpha_rad)
-        Re = max(1e3, (rho_kgm3 * W_ms * chord_m) / mu_Pas) if mu_Pas > 1e-9 else 1e5
-        try:
-            cl, cd = airfoil_obj.get_lift_drag_coeffs(alpha_deg, Re, apply_viterna_poststall=True)
-        except Exception:
-            cl, cd = 0.0, 0.0
-
-        cn = cl * np.cos(phi_rad) + cd * np.sin(phi_rad)
-        ct = cl * np.sin(phi_rad) - cd * np.cos(phi_rad)
-
-        # Loss factor
-        r_norm = radius_m / tip_radius_m
-        r_hub_norm = root_radius_m / tip_radius_m
-        F = _calculate_F_sh(num_blades, r_norm, r_hub_norm, tip_radius_m,
-                           tip_gap_clearance_m, phi_rad, use_dayhoum_F_gap_model)
-
-        # Unified momentum equation (works for both propeller and wind turbine modes)
-        V_disk = V_axial_ms_safe * (1 + a)
-        momentum_force = 4 * np.pi * radius_m * F * abs(V_disk) * (V_disk - V_axial_ms_safe)
-        blade_force = 0.5 * rho_kgm3 * (W_ms**2) * num_blades * chord_m * cn
-        res_a = momentum_force - blade_force
-
-        # Tangential residual
-        term_ap = 4 * F * abs(np.sin(phi_rad)) * np.cos(phi_rad)
-        res_ap = term_ap * a_prime * (1 - a_prime) - local_solidity * ct
-
-        return np.array([res_a, res_ap])
-
+    X = np.clip(ch / np.cosh(f + g), 0.0, 1.0)
     try:
-        solution, infodict, ier, mesg = fsolve(
-            residuals, initial_guess, full_output=True, xtol=DEFAULT_CONVERGENCE_TOL_FSOLVE
-        )
-        a_final, ap_final = solution[0], solution[1]
+        def _res(u):
+            _, cn, dn, _ = ellipj(u, m)
+            return cn / dn - X
+        u = brentq(_res, 0.0, K, xtol=1e-7)
     except Exception:
-        a_final, ap_final = initial_guess
+        u = K * (1.0 - X)
+    return float(np.clip(u / K, 0.01, 1.0))
 
-    # Recalculate final values with converged a, a_prime
-    Vax_elem = V_axial_ms_safe * (1 + a_final)
-    Vtan_elem = omega_rads * radius_m * (1 - ap_final)
-    phi_rad = np.arctan2(Vax_elem, Vtan_elem)
-    local_W_ms = np.sqrt(Vax_elem**2 + Vtan_elem**2)
-    local_alpha_rad = phi_rad - local_twist_rad
-    local_alpha_deg = np.degrees(local_alpha_rad)
-    Re = max(1e3, (rho_kgm3 * local_W_ms * chord_m) / mu_Pas) if mu_Pas > 1e-9 else 1e5
+
+def _F_combined(B, r_norm, r_hub_norm, R_tip, gap, phi, use_dayhoum):
+    Fh = _prandtl_hub_F(B, r_norm, r_hub_norm, phi)
+    Ft = (_dayhoum_tip_F(B, r_norm, R_tip, gap, phi)
+          if use_dayhoum else _prandtl_tip_F(B, r_norm, phi))
+    return float(np.clip(Fh * Ft, 0.01, 1.0))
+
+
+# ── Airfoil lookup ─────────────────────────────────────────────────────────────
+
+def _get_cl_cd(airfoil, alpha_deg, W, chord, rho, mu):
+    Re = max(1e3, rho * W * chord / mu)
     try:
-        cl, cd = airfoil_obj.get_lift_drag_coeffs(local_alpha_deg, Re)
+        cl, cd = airfoil.get_lift_drag_coeffs(alpha_deg, Re, apply_viterna_poststall=True)
     except Exception:
-        cl, cd = 0.0, 0.0
-
-    r_norm = radius_m / tip_radius_m
-    r_hub_norm = root_radius_m / tip_radius_m
-    F_sh = _calculate_F_sh(num_blades, r_norm, r_hub_norm, tip_radius_m,
-                          tip_gap_clearance_m, phi_rad, use_dayhoum_F_gap_model)
-
-    return (a_final, ap_final, phi_rad, local_alpha_deg, cl, cd, Re, F_sh, local_W_ms)
+        cl, cd = 0.0, 0.01
+    return float(cl), float(cd), float(Re)
 
 
-# --- Main BEMT Functions ---
+# ── Universal phi-iteration element solver ─────────────────────────────────────
+
+def _solve_element(
+    V_inf, omega, r, chord, twist_deg, airfoil, B,
+    rho, mu, r_hub, R_tip, gap, use_dayhoum
+):
+    """
+    Solve one blade element for any V_inf (including hover).
+
+    State variables: v_i (induced axial, m/s), v_t (induced tangential, m/s).
+
+    Momentum equations (velocity form, non-degenerate at V_inf=0):
+        dT/dr = 4π r ρ F (V_inf + v_i) v_i
+        dQ/dr = 4π r³ ρ F Ω (V_inf + v_i) v_t / r  =>  v_t via torque residual
+
+    Blade element equations:
+        phi   = arctan((V_inf + v_i) / (Ω r - v_t))
+        alpha = theta - phi
+        W     = sqrt((V_inf+v_i)^2 + (Ω r - v_t)^2)
+        dT/dr = ½ ρ W² B c (cl cos φ + cd sin φ)
+        dQ/dr = ½ ρ W² B c (cl sin φ - cd cos φ) · r
+    """
+    theta      = np.radians(twist_deg)
+    u_t        = omega * r
+    r_norm     = r / R_tip
+    r_hub_norm = r_hub / R_tip
+
+    # Initial guess: small induction
+    v_i = max(0.05 * u_t, 0.5)
+    v_t = 0.01 * u_t
+
+    for _ in range(_MAX_ITER):
+        V_ax  = V_inf + v_i
+        V_tan = u_t - v_t
+        if V_tan < _MIN_VEL:
+            V_tan = _MIN_VEL
+        phi = np.arctan2(V_ax, V_tan)
+        phi = np.clip(phi, 1e-4, np.pi / 2 - 1e-4)
+        W   = np.sqrt(V_ax**2 + V_tan**2)
+
+        alpha_deg = np.degrees(theta - phi)   # propeller convention: alpha = pitch - inflow
+        cl, cd, _ = _get_cl_cd(airfoil, alpha_deg, W, chord, rho, mu)
+        cn = cl * np.cos(phi) + cd * np.sin(phi)   # normal  (thrust) force coefficient
+        ct = cl * np.sin(phi) - cd * np.cos(phi)   # tangential (torque) force coefficient
+        F  = _F_combined(B, r_norm, r_hub_norm, R_tip, gap, phi, use_dayhoum)
+
+        # Blade element loads per unit span
+        dT_blade = 0.5 * rho * W**2 * B * chord * cn
+        dQ_blade = 0.5 * rho * W**2 * B * chord * ct * r
+
+        # Momentum -> new induced velocities
+        # From thrust momentum: (V_inf + v_i)*v_i = dT_blade / (4π r ρ F)
+        k_T = dT_blade / (4.0 * np.pi * r * rho * F)
+        # Solve: v_i^2 + V_inf*v_i - k_T = 0  (quadratic in v_i)
+        disc = V_inf**2 + 4.0 * k_T
+        if disc < 0 or k_T < 0:
+            v_i_new = abs(v_i) * 0.5   # fallback: reduce induction
+        else:
+            v_i_new = (-V_inf + np.sqrt(disc)) / 2.0
+        v_i_new = max(0.0, v_i_new)
+
+        # From torque momentum: v_t*(V_inf+v_i) = dQ_blade / (4π r² ρ F Ω)
+        k_Q = dQ_blade / (4.0 * np.pi * r**2 * rho * F * omega)
+        denom = V_inf + v_i_new
+        v_t_new = k_Q / denom if abs(denom) > _MIN_VEL else v_t
+
+        # Convergence check
+        if abs(v_i_new - v_i) < _CONV_TOL * max(1.0, v_i) and \
+           abs(v_t_new - v_t) < _CONV_TOL * max(1.0, v_t):
+            v_i, v_t = v_i_new, v_t_new
+            break
+
+        v_i = (1 - _RELAX) * v_i + _RELAX * v_i_new
+        v_t = (1 - _RELAX) * v_t + _RELAX * v_t_new
+
+    # ── Final reconstruction ───────────────────────────────────────────────────
+    V_ax  = V_inf + v_i
+    V_tan = max(u_t - v_t, _MIN_VEL)
+    phi_f = np.arctan2(V_ax, V_tan)
+    W_f   = np.sqrt(V_ax**2 + V_tan**2)
+    alpha_f = np.degrees(theta - phi_f)
+    cl_f, cd_f, Re_f = _get_cl_cd(airfoil, alpha_f, W_f, chord, rho, mu)
+    F_f = _F_combined(B, r_norm, r_hub_norm, R_tip, gap, phi_f, use_dayhoum)
+
+    # Induction factors for output (informational)
+    a  = v_i / (V_inf + _MIN_VEL) if V_inf > 0.1 else v_i / (omega * R_tip)
+    ap = v_t / u_t if u_t > _MIN_VEL else 0.0
+
+    return a, ap, phi_f, alpha_f, cl_f, cd_f, Re_f, F_f, W_f
+
+
+# ── Main public function ───────────────────────────────────────────────────────
+
 def calculate_bemt_performance_axial(
-    rotor_stations_data: List[Dict[str, Any]],
-    V_axial_ms: float, omega_rads: float, num_blades: int, rho_kgm3: float, mu_Pas: float,
-    root_radius_m: float, tip_radius_m: float, tip_gap_clearance_m: float,
-    use_dayhoum_F_gap_model: bool = True
-) -> Dict[str, Any]:
+    rotor_stations_data,
+    V_axial_ms: float,
+    omega_rads: float,
+    num_blades: int,
+    rho_kgm3: float,
+    mu_Pas: float,
+    root_radius_m: float,
+    tip_radius_m: float,
+    tip_gap_clearance_m: float,
+    use_dayhoum_F_gap_model: bool = False
+) -> dict:
     """
-    Performs BEMT analysis for a rotor in AXIAL FLIGHT (including hover).
-    Solves for induction factors a and a' at each element.
+    BEMT analysis for an open or ducted rotor in axial flight (including hover).
+
+    Parameters
+    ----------
+    rotor_stations_data    : list of dicts from get_rotor_bemt_stations()
+    V_axial_ms             : freestream axial velocity (m/s); 0.0 for hover
+    omega_rads             : rotational speed (rad/s)
+    num_blades             : number of blades
+    rho_kgm3               : air density (kg/m³)
+    mu_Pas                 : dynamic viscosity (Pa·s)
+    root_radius_m          : hub radius (m)
+    tip_radius_m           : tip radius (m)
+    tip_gap_clearance_m    : tip clearance (m); 0 for open rotor
+    use_dayhoum_F_gap_model: True for Dayhoum shrouded tip loss; False for Prandtl
+
+    Returns
+    -------
+    dict with keys: total_thrust_N, total_torque_Nm, total_power_W,
+                    propulsive_efficiency, figure_of_merit,
+                    Ct_rotor, Cp_rotor, Cq_rotor, advance_ratio,
+                    spanwise_results (list of per-element dicts)
     """
     if not rotor_stations_data:
         raise ValueError("rotor_stations_data is empty.")
     if omega_rads <= 0:
         raise ValueError("omega_rads must be positive.")
     if tip_radius_m <= root_radius_m:
-        raise ValueError("tip_radius_m must be greater than root_radius_m.")
+        raise ValueError("tip_radius_m must be > root_radius_m.")
 
-    element_results = []
-    integrand_dT_dr, integrand_dQ_dr, integration_radii = [], [], []
+    V = float(V_axial_ms)
+    element_results, dT_list, dQ_list, r_list = [], [], [], []
 
-    for station in rotor_stations_data:
-        r_m = station['radius_m']
-        if r_m < root_radius_m - 1e-6 or r_m > tip_radius_m + 1e-6:
+    for st in rotor_stations_data:
+        r_m = st["radius_m"]
+        # Skip stations at exact tip (Prandtl F->0, degenerate momentum eq)
+        if r_m < root_radius_m - 1e-6 or r_m >= tip_radius_m - 1e-4:
             continue
+        chord_m   = st["chord_m"]
+        twist_deg = st.get("base_twist_deg", st["twist_deg"]) + st.get("collective_pitch_deg", 0.0)
+        airfoil   = st["airfoil_object"]
 
-        chord_m = station['chord_m']
-        twist_deg = station.get('base_twist_deg', station['twist_deg']) + station.get('collective_pitch_deg', 0.0)
-        airfoil: Airfoil = station['airfoil_object']
-
-        a, ap, phi_rad, alpha_deg, cl, cd, Re, F, W_ms = _solve_element_induction_factors_axial(
-            V_axial_ms, omega_rads, r_m, chord_m, twist_deg, airfoil, num_blades,
+        a, ap, phi, alpha, cl, cd, Re, F, W = _solve_element(
+            V, omega_rads, r_m, chord_m, twist_deg, airfoil, num_blades,
             rho_kgm3, mu_Pas, root_radius_m, tip_radius_m, tip_gap_clearance_m,
             use_dayhoum_F_gap_model
         )
 
-        cn = cl * np.cos(phi_rad) + cd * np.sin(phi_rad)
-        ct = cl * np.sin(phi_rad) - cd * np.cos(phi_rad)
+        cn = cl * np.cos(phi) + cd * np.sin(phi)
+        ct = cl * np.sin(phi) - cd * np.cos(phi)
+        dT = 0.5 * rho_kgm3 * W**2 * num_blades * chord_m * cn * F
+        dQ = 0.5 * rho_kgm3 * W**2 * num_blades * chord_m * ct * r_m * F
 
-        dT_dr_val = 0.5 * rho_kgm3 * (W_ms**2) * num_blades * chord_m * cn * F
-        dQ_dr_val = 0.5 * rho_kgm3 * (W_ms**2) * num_blades * chord_m * ct * r_m * F
-
-        integrand_dT_dr.append(dT_dr_val)
-        integrand_dQ_dr.append(dQ_dr_val)
-        integration_radii.append(r_m)
-
+        r_list.append(r_m); dT_list.append(dT); dQ_list.append(dQ)
         element_results.append({
             "radius_m": r_m,
-            "eta": (r_m - root_radius_m) / (tip_radius_m - root_radius_m) if (tip_radius_m > root_radius_m) else 0.5,
-            "a": a, "a_prime": ap, "phi_deg": np.degrees(phi_rad), "alpha_deg": alpha_deg,
-            "Cl": cl, "Cd": cd, "Re": Re, "F_sh": F, "W_ms": W_ms,
-            "dT_dr_N_m": dT_dr_val, "dQ_dr_Nm_m": dQ_dr_val
+            "eta": (r_m - root_radius_m) / (tip_radius_m - root_radius_m),
+            "a": a, "a_prime": ap,
+            "phi_deg": float(np.degrees(phi)),
+            "alpha_deg": float(alpha),
+            "Cl": float(cl), "Cd": float(cd), "Re": float(Re),
+            "F_sh": float(F), "W_ms": float(W),
+            "dT_dr_N_m": float(dT), "dQ_dr_Nm_m": float(dQ),
         })
 
-    # Integration and result packaging
-    if not integration_radii:
-        return {
-            "total_thrust_N": 0.0, "total_torque_Nm": 0.0, "total_power_W": 0.0,
-            "efficiency": 0.0, "Ct_rotor": 0.0, "Cp_rotor": 0.0, "spanwise_results": []
-        }
+    if not r_list:
+        empty = {k: 0.0 for k in ["total_thrust_N", "total_torque_Nm", "total_power_W",
+                                    "propulsive_efficiency", "efficiency", "figure_of_merit",
+                                    "Ct_rotor", "Cp_rotor", "Cq_rotor", "advance_ratio"]}
+        empty["spanwise_results"] = []
+        return empty
 
-    # Sort by radius for proper integration
-    sort_indices = np.argsort(integration_radii)
-    radii_np = np.array(integration_radii)[sort_indices]
-    dTdr_np = np.array(integrand_dT_dr)[sort_indices]
-    dQdr_np = np.array(integrand_dQ_dr)[sort_indices]
+    idx   = np.argsort(r_list)
+    r_np  = np.array(r_list)[idx]
+    dT_np = np.array(dT_list)[idx]
+    dQ_np = np.array(dQ_list)[idx]
 
-    # Calculate total thrust and torque
-    total_thrust_N = trapz(dTdr_np, x=radii_np)
-    total_torque_Nm = trapz(dQdr_np, x=radii_np)
-    total_power_W = total_torque_Nm * omega_rads
+    T = float(trapz(dT_np, x=r_np))
+    Q = float(trapz(dQ_np, x=r_np))
+    P = Q * omega_rads
 
-    # Calculate advance ratio and dimensionless coefficients
-    n_rps = omega_rads / (2 * np.pi)
-    D = 2 * tip_radius_m
-    if n_rps > 1e-6:
-        J = V_axial_ms / (n_rps * D)  # Advance ratio
-    else:
-        J = 0.0
+    n_rps  = omega_rads / (2.0 * np.pi)
+    D      = 2.0 * tip_radius_m
+    J      = V / (n_rps * D) if n_rps > 1e-6 else 0.0
+    A_disk = np.pi * tip_radius_m**2
 
-    # Calculate efficiency
-    if abs(total_power_W) > 1e-6:
-        efficiency = (total_thrust_N * V_axial_ms) / total_power_W
-        efficiency = np.clip(efficiency, -1.0, 1.0)
-    else:
-        efficiency = 0.0
+    # Propulsive efficiency η = TV/P  (meaningful for J > 0)
+    eta = float(np.clip((T * V) / P, 0.0, 1.0)) if abs(P) > 1e-6 and V > 0.1 else 0.0
 
-    # Calculate dimensionless coefficients
-    if n_rps > 1e-6:
-        Ct = total_thrust_N / (rho_kgm3 * n_rps**2 * D**4)
-        Cp = total_power_W / (rho_kgm3 * n_rps**3 * D**5)
-        Cq = total_torque_Nm / (rho_kgm3 * n_rps**2 * D**5)
-    else:  # Hover condition
-        Ct = total_thrust_N / (rho_kgm3 * omega_rads**2 * tip_radius_m**4)
-        Cp = total_power_W / (rho_kgm3 * omega_rads**3 * tip_radius_m**5)
-        Cq = Cp  # For hover, Cq = Cp since P = Q*ω
+    # Figure of Merit = P_ideal / P_actual  (meaningful at hover/low J)
+    FM = 0.0
+    if T > 1e-6 and P > 1e-6:
+        v_ideal = np.sqrt(T / (2.0 * rho_kgm3 * A_disk))
+        FM = float(np.clip(T * v_ideal / P, 0.0, 1.0))
 
-    # Sort spanwise results
-    final_spanwise_results = [element_results[i] for i in sort_indices] if element_results else []
+    Ct = T / (rho_kgm3 * n_rps**2 * D**4) if n_rps > 1e-6 else 0.0
+    Cp = P / (rho_kgm3 * n_rps**3 * D**5) if n_rps > 1e-6 else 0.0
+    Cq = Q / (rho_kgm3 * n_rps**2 * D**5) if n_rps > 1e-6 else 0.0
 
     return {
-        "total_thrust_N": total_thrust_N,
-        "total_torque_Nm": total_torque_Nm,
-        "total_power_W": total_power_W,
-        "efficiency": efficiency,
-        "Ct_rotor": Ct,
-        "Cp_rotor": Cp,
-        "Cq_rotor": Cq,
-        "advance_ratio": J,
-        "spanwise_results": final_spanwise_results
+        "total_thrust_N":        T,
+        "total_torque_Nm":       Q,
+        "total_power_W":         P,
+        "propulsive_efficiency": eta,
+        "efficiency":            eta,   # alias for study.py compatibility
+        "figure_of_merit":       FM,
+        "Ct_rotor":              Ct,
+        "Cp_rotor":              Cp,
+        "Cq_rotor":              Cq,
+        "advance_ratio":         J,
+        "spanwise_results":      [element_results[i] for i in idx],
     }

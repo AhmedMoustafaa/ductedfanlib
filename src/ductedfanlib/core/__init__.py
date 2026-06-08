@@ -1,13 +1,7 @@
 from .blade import Blade
-from .design import DuctedFan
-from .duct import Duct
 from .rotor import Rotor
+from .duct import Duct
+from .design import DuctedFan
 from .OperatingConditions import OperatingConditions
 
-__all__ = [
-    "Blade",
-    "Rotor",
-    "Duct",
-    "DuctedFan",
-    "OperatingConditions"
-    ]
+__all__ = ["Blade", "Rotor", "Duct", "DuctedFan", "OperatingConditions"]

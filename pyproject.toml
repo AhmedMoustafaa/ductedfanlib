@@ -1,0 +1,29 @@
+[build-system]
+requires      = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name            = "ductedfanlib"
+version         = "0.0.2"
+description     = "Ducted fan design, BEMT analysis, and parametric study library"
+readme          = "README.md"
+requires-python = ">=3.10"
+license         = { text = "MIT" }
+
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+    "neuralfoil>=0.2",
+    "aerosandbox>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
