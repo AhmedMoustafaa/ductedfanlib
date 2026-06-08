@@ -1,18 +1,7 @@
 """
 Blade Element Momentum Theory (BEMT) for open rotors in axial flight.
 
-Fixes applied vs original:
-  1. Sign convention: alpha = theta - phi  (pitch minus inflow angle).
-     Original had alpha = phi - theta, giving negative AoA and negative thrust.
-  2. Universal velocity-based phi-iteration (works for hover AND forward flight).
-     The original a*(1+a)*V_inf^2 momentum residual is scale-degenerate whenever
-     V_inf << u_t (i.e., all practical propeller operation). Replaced with:
-       dT/dr = 4π r ρ F (V_inf + v_i) v_i    [v_i = induced axial velocity]
-       dQ/dr = 4π r³ ρ F Ω v_t (V_inf + v_i)  [v_t = induced tangential velocity]
-     This formulation is non-degenerate from hover to cruise.
-  3. Prandtl tip/hub exponents use sin(phi) consistently.
-  4. fsolve convergence flag checked; non-convergence raises a warning.
-  5. Figure of Merit returned alongside propulsive efficiency.
+
 """
 from typing import List, Dict, Any
 import warnings

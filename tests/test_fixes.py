@@ -1,5 +1,5 @@
 """
-Integration test covering every fix made in this session.
+Integration test suite.
 """
 import sys, warnings, os, tempfile
 import numpy as np

@@ -1,17 +1,7 @@
 """
 Parametric studies and post-processing for ductedfanlib.
 
-Fixes vs original:
-  - Duplicate OperatingConditions @dataclass removed; imported from core.
-  - sweep_advance_ratio no longer calls get_lift_curve_slope (method doesn't exist
-    on Airfoil); assumed_cla_rad argument removed from bemt2 call (it was unused).
-  - plot_streamtube_visualization: division by zero at hover fixed; hover streamlines
-    use v_i from spanwise 'a' instead of V_inf.
-  - sweep_design_parameter: semicolon-chained set_nested_attr rewritten as a proper
-    nested function.
-  - All plots return the Figure object so callers can save without plt.show() blocking.
-  - Added export_results() for CSV/JSON output.
-  - Added summary_table() for a quick text overview.
+
 """
 from __future__ import annotations
 
@@ -361,9 +351,8 @@ class ParametricStudy:
         """
         Streamtube visualisation for a given J.
 
-        Fixed vs original: no division by V_inf at hover; uses induced axial
-        velocity v_i (= a × ω × R_tip for hover, a × V_inf for forward flight)
-        to compute stream-tube contraction correctly.
+        Uses induced axial velocity v_i (= a × ω × R_tip for hover, a × V_inf for 
+        forward flight) to compute stream-tube contraction correctly.
         """
         if self.sweep_results_df is None or not self.spanwise_results:
             raise RuntimeError("Run sweep_advance_ratio first.")

@@ -1,12 +1,7 @@
 """
 High-level analysis runner — selects the right solver automatically.
 
-Fixed vs original:
-  - Filename was "analysis manager.py" (space) making it unimportable. Renamed.
-  - Hover path now routes through bemt2.calculate_bemt_performance_axial
-    (V=0 works correctly) rather than the broken bemt.py Dayhoum hover solver.
-  - assumed_cla_rad lookup removed (method doesn't exist on Airfoil).
-  - sigma_d derivation kept for ducted-fan hover but defaults gracefully.
+
 """
 from __future__ import annotations
 
